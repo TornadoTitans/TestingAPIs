@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>TT NEXRAD Probe v2</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,700;0,900;1,900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+:root{--o:#fba752;--g:#8bc34a;--r:#f44336;--t:#7ccdd1;--y:#ffeb3b;--p:#ff64eb;--w:#f3f3f3;--bg:#0e1520;--db:#1b263b}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--w);font-family:'Share Tech Mono',monospace;padding:10px;min-height:100vh;font-size:12px}
+h1{font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:900;font-style:italic;color:var(--o);margin-bottom:2px}
+.sub{font-size:9px;color:rgba(243,243,243,.35);letter-spacing:.1em;margin-bottom:10px}
+.sec{background:rgba(27,38,59,.6);border:1px solid rgba(251,167,82,.15);border-radius:5px;padding:10px;margin-bottom:10px}
+.st{font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--o);margin-bottom:6px}
+.s{font-size:11px;line-height:1.5;word-break:break-all}
+.ok{color:var(--g)}.er{color:var(--r)}.wa{color:var(--y)}.in{color:var(--t)}.dm{color:rgba(243,243,243,.3)}
+.lg{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:6px}
+.lb,.btn{display:block;width:100%;padding:10px;background:rgba(251,167,82,.08);border:1px solid rgba(251,167,82,.35);border-radius:5px;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--o);cursor:pointer;text-align:center}
+.lb:active,.btn:active{background:rgba(251,167,82,.2)}
+.btn{margin-bottom:6px}
+.btn:disabled{opacity:.3}
+input{width:100%;padding:9px;margin-bottom:6px;background:rgba(27,38,59,.8);border:1px solid rgba(251,167,82,.2);border-radius:5px;font-family:'Share Tech Mono',monospace;font-size:12px;color:var(--w)}
+input::placeholder{color:rgba(243,243,243,.2)}
+.sc{background:rgba(27,38,59,.8);border-left:3px solid var(--t);padding:7px 9px;margin-top:6px;font-size:10px;line-height:1.4}
+.sc.m{border-left-color:var(--y)}.sc.t{border-left-color:var(--p)}
+.sc b{color:var(--o);font-family:'Barlow Condensed',sans-serif;font-weight:700;letter-spacing:.08em}
+.hi{color:var(--p);font-weight:bold}
+pre{font-size:9px;line-height:1.3;color:rgba(243,243,243,.4);white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;margin-top:5px;padding:6px;background:rgba(0,0,0,.3);border-radius:3px;display:none}
+.tr{font-size:9px;color:var(--t);cursor:pointer;margin-top:3px}
+.tn{display:inline-block;width:16px;height:16px;line-height:16px;text-align:center;border-radius:50%;background:var(--o);color:var(--bg);font-size:9px;font-weight:bold;margin-right:4px}
+</style>
+</head>
+<body>
+<h1>NEXRAD DATA PROBE</h1>
+<div class="sub">TESTING IEM + OPEN-METEO FEEDS FOR TITAN TRACK · V2</div>
+
+<div class="sec">
+<div class="st">LOCATION</div>
+<div class="lg">
+<div class="lb" onclick="pick(35.22,-97.44,'Norman OK')">NORMAN OK</div>
+<div class="lb" onclick="pick(37.69,-97.34,'Wichita KS')">WICHITA KS</div>
+<div class="lb" onclick="pick(35.47,-97.52,'OKC OK')">OKC OK</div>
+<div class="lb" onclick="pick(32.78,-96.80,'Dallas TX')">DALLAS TX</div>
+<div class="lb" onclick="pick(33.58,-101.85,'Lubbock TX')">LUBBOCK TX</div>
+<div class="lb" onclick="pick(37.75,-99.97,'Dodge City KS')">DODGE CITY KS</div>
+<div class="lb" onclick="pick(41.26,-95.94,'Omaha NE')">OMAHA NE</div>
+<div class="lb" onclick="pick(30.27,-97.74,'Austin TX')">AUSTIN TX</div>
+</div>
+<input id="ci" placeholder="Or type: city, state" onkeydown="if(event.key==='Enter')geo()">
+<div class="btn" onclick="geo()">SEARCH</div>
+<div class="btn" onclick="gps()">USE GPS</div>
+<div class="s dm" id="ls">Pick a location or type one in</div>
+</div>
+
+<div class="btn" id="go" onclick="run()" disabled>RUN ALL TESTS</div>
+
+<div class="sec"><div class="st"><span class="tn">1</span>NEAREST NEXRAD + CORS</div><div class="s dm" id="r1">—</div></div>
+<div class="sec"><div class="st"><span class="tn">2</span>IEM STORM ATTRIBUTES (CSV)</div><div class="s dm" id="r2">—</div><div id="cards"></div><span class="tr" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">▸ raw</span><pre id="p2"></pre></div>
+<div class="sec"><div class="st"><span class="tn">3</span>IEM LSR GEOJSON</div><div class="s dm" id="r3">—</div><span class="tr" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">▸ raw</span><pre id="p3"></pre></div>
+<div class="sec"><div class="st"><span class="tn">4</span>NCEI SWDI LATENCY</div><div class="s dm" id="r4">—</div><span class="tr" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">▸ raw</span><pre id="p4"></pre></div>
+<div class="sec"><div class="st"><span class="tn">5</span>OPEN-METEO PRESSURE WINDS</div><div class="s dm" id="r5">—</div><span class="tr" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">▸ raw</span><pre id="p5"></pre></div>
+<div class="sec" id="sv" style="display:none"><div class="st">VERDICT</div><div class="s" id="vd"></div></div>
+
+<script>
+let lat,lon,nm,nr,R={};
+const $=id=>document.getElementById(id);
+function w(id,m,c=''){$(id).className='s '+c;$(id).innerHTML=m}
+function a(id,m,c=''){$(id).innerHTML+='<br>'+(c?'<span class="'+c+'">'+m+'</span>':m)}
+function ft(u,ms=12000){return Promise.race([fetch(u),new Promise((_,r)=>setTimeout(()=>r(new Error('Timeout')),ms))])}
+function el(t){return((performance.now()-t)/1000).toFixed(2)+'s'}
+
+function pick(lt,ln,n){lat=lt;lon=ln;nm=n;nr=gr(lat,lon);w('ls','<span class="ok">'+n+'</span> · '+lt.toFixed(4)+','+ln.toFixed(4)+' · Radar: '+nr);$('go').disabled=false}
+function gps(){w('ls','Getting GPS...','wa');navigator.geolocation.getCurrentPosition(p=>pick(p.coords.latitude,p.coords.longitude,'GPS'),e=>w('ls','GPS failed: '+e.message,'er'),{enableHighAccuracy:true,timeout:15000})}
+async function geo(){const q=$('ci').value.trim();if(!q)return;w('ls','Searching...','wa');try{const r=await ft('https://nominatim.openstreetmap.org/search?q='+encodeURIComponent(q)+'&format=json&limit=1&countrycodes=us',10000);const d=await r.json();if(d[0])pick(parseFloat(d[0].lat),parseFloat(d[0].lon),d[0].display_name.split(',').slice(0,2).join(',').trim());else w('ls','Not found','er')}catch(e){w('ls','Error: '+e.message,'er')}}
+
+function gr(la,lo){const rs=[{i:'KTLX',a:35.33,o:-97.28},{i:'KINX',a:36.18,o:-95.57},{i:'KVNX',a:36.74,o:-98.13},{i:'KFDR',a:34.36,o:-98.98},{i:'KDDC',a:37.76,o:-99.97},{i:'KICT',a:37.66,o:-97.44},{i:'KLBB',a:33.65,o:-101.81},{i:'KAMA',a:35.23,o:-101.71},{i:'KABX',a:35.15,o:-106.82},{i:'KFWS',a:32.57,o:-97.30},{i:'KOUN',a:35.24,o:-97.46},{i:'KLZK',a:34.84,o:-92.26},{i:'KEAX',a:38.81,o:-94.26},{i:'KSGF',a:37.24,o:-93.40},{i:'KOAX',a:41.32,o:-96.37},{i:'KDMX',a:41.73,o:-93.72},{i:'KMPX',a:44.85,o:-93.57},{i:'KNQA',a:35.35,o:-89.87},{i:'KBMX',a:33.17,o:-86.77},{i:'KGRK',a:30.72,o:-97.38},{i:'KEWX',a:29.70,o:-98.03},{i:'KSHV',a:32.45,o:-93.84},{i:'KMAF',a:31.94,o:-102.19},{i:'KHGX',a:29.47,o:-95.08},{i:'KCRP',a:27.78,o:-97.51},{i:'KUEX',a:40.32,o:-98.44},{i:'KGLD',a:39.37,o:-101.70},{i:'KCYS',a:41.15,o:-104.81},{i:'KDYX',a:32.54,o:-99.25},{i:'KLCH',a:30.13,o:-93.22},{i:'KABR',a:45.46,o:-98.41},{i:'KUDX',a:44.13,o:-102.83},{i:'KPUX',a:38.46,o:-104.18},{i:'KRIW',a:43.07,o:-108.48}];let b=rs[0],bd=999;for(const r of rs){const d=Math.sqrt((r.a-la)**2+(r.o-lo)**2);if(d<bd){bd=d;b=r}}return b.i}
+
+async function t1(){
+  nr=gr(lat,lon);
+  w('r1','Nearest: <span class="in">'+nr+'</span> (lookup table)');
+  try{
+    const u='https://mesonet.agron.iastate.edu/json/radar.py?operation=available&lat='+lat+'&lon='+lon;
+    a('r1','<span class="dm">CORS test: '+u.substring(0,70)+'...</span>');
+    const r=await ft(u,8000);
+    if(r.ok){a('r1','<span class="ok">IEM CORS: ALLOWED</span> ('+r.status+')');R.cors=true}
+    else{a('r1','HTTP '+r.status,'wa');R.cors=false}
+  }catch(e){a('r1','<span class="er">IEM CORS: BLOCKED</span> — '+e.message);a('r1','Would need Cloudflare Worker proxy','wa');R.cors=false}
+}
+
+async function t2(){
+  const t0=performance.now();w('r2','Querying '+nr+' (last 2h)...','wa');
+  const n=new Date(),ag=new Date(n.getTime()-2*3600000);
+  const u='https://mesonet.agron.iastate.edu/cgi-bin/request/gis/nexrad_storm_attrs.py?radar='+nr+'&fmt=csv&year1='+ag.getUTCFullYear()+'&month1='+(ag.getUTCMonth()+1)+'&day1='+ag.getUTCDate()+'&hour1='+ag.getUTCHours()+'&minute1='+ag.getUTCMinutes()+'&year2='+n.getUTCFullYear()+'&month2='+(n.getUTCMonth()+1)+'&day2='+n.getUTCDate()+'&hour2='+n.getUTCHours()+'&minute2='+n.getUTCMinutes();
+  a('r2','<span class="dm">'+u.substring(0,90)+'...</span>');
+  try{
+    const r=await ft(u,15000);const t=el(t0);
+    if(!r.ok){a('r2','HTTP '+r.status+' — '+t,'er');R.sa='http-err';return}
+    const tx=await r.text();$('p2').textContent=tx.substring(0,4000);
+    const ls=tx.trim().split('\n').filter(l=>l&&!l.startsWith('#'));
+    if(ls.length<=1){
+      a('r2','<span class="wa">No storm cells from '+nr+' in last 2 hours</span> — '+t);
+      if(tx.length>5){a('r2','<span class="ok">ENDPOINT WORKS</span> — just no storms nearby. Headers: '+ls[0]?.substring(0,60));R.sa='empty-ok'}
+      else{a('r2','Empty response','wa');R.sa='empty'}
+      return
+    }
+    a('r2','<span class="ok">'+( ls.length-1)+' STORM CELLS</span> — '+t);R.sa='success';
+    const hd=ls[0].split(',').map(h=>h.trim()),cd=$('cards');cd.innerHTML='';
+    const storms=[];
+    for(let i=1;i<ls.length;i++){const v=ls[i].split(',');const s={};hd.forEach((h,j)=>s[h]=v[j]?.trim()||'');storms.push(s)}
+    const last=storms[storms.length-1],tf=last.VALID||'';
+    if(tf){const dt=new Date(tf.includes('Z')?tf:tf+'Z'),am=Math.round((n-dt)/60000);a('r2','LATENCY: <span class="'+(am<=5?'ok':am<=15?'wa':'er')+'">'+am+' min old</span>')}
+    storms.slice(-6).forEach(s=>{
+      const tv=!!(s.TVS||'').match(/Y|TVS/i),ms=parseInt(s.MESO||'0');
+      const d=document.createElement('div');d.className='sc'+(tv?' t':ms>0?' m':'');
+      d.innerHTML='<b>'+nr+' · '+( s.STORM_ID||'?')+'</b> <span class="dm">'+( s.VALID||'')+'</span><br>TOP: '+(parseFloat(s.TOP||0)>0?parseFloat(s.TOP).toFixed(1)+'K':'—')+' · dBZ: '+(s.MAX_DBZ||'—')+' · VIL: '+(s.VIL||'—')+'<br>POSH: '+(s.POSH||0)+'% · HAIL: '+(parseFloat(s.MAX_SIZE||0)>0?s.MAX_SIZE+'"':'—')+' · TVS: <span class="'+(tv?'hi':'')+'">'+(s.TVS||'NONE')+'</span> · MESO: <span class="'+(ms>0?'hi':'')+'">'+(s.MESO||'NONE')+'</span>';
+      cd.appendChild(d)
+    });
+    if(storms.length>6){const x=document.createElement('div');x.className='dm';x.style.fontSize='9px';x.style.marginTop='4px';x.textContent='Showing last 6 of '+storms.length;cd.appendChild(x)}
+  }catch(e){a('r2','<span class="er">FAILED: '+e.message+'</span>');R.sa='failed'}
+}
+
+async function t3(){
+  const t0=performance.now();w('r3','Querying LSR GeoJSON...','wa');
+  const u='https://mesonet.agron.iastate.edu/geojson/lsr.geojson?west='+(lon-1.5).toFixed(2)+'&east='+(lon+1.5).toFixed(2)+'&south='+(lat-1.5).toFixed(2)+'&north='+(lat+1.5).toFixed(2)+'&hours=24';
+  a('r3','<span class="dm">'+u.substring(0,80)+'...</span>');
+  try{const r=await ft(u,12000);const t=el(t0);if(!r.ok){a('r3','HTTP '+r.status,'er');R.lsr='err';return}
+  const tx=await r.text();$('p3').textContent=tx.substring(0,3000);const d=JSON.parse(tx),c=d.features?.length||0;
+  a('r3','<span class="ok">SUCCESS</span> · '+t+' · '+c+' reports in 24h');R.lsr=c>0?'data':'empty-ok';
+  if(c>0){const tp={};d.features.forEach(f=>{const t=f.properties?.typetext||'?';tp[t]=(tp[t]||0)+1});a('r3',Object.entries(tp).map(([k,v])=>k+': '+v).join(' · '),'in')}
+  else a('r3','No reports — endpoint works, quiet area','dm')
+  }catch(e){a('r3','<span class="er">FAILED: '+e.message+'</span>');R.lsr='failed'}
+}
+
+async function t4(){
+  const t0=performance.now();w('r4','Testing NCEI SWDI...','wa');
+  const n=new Date(),td=n.getUTCFullYear()+String(n.getUTCMonth()+1).padStart(2,'0')+String(n.getUTCDate()).padStart(2,'0');
+  const u='https://www.ncei.noaa.gov/swdiws/csv/nx3structure/'+td+'?center='+lon.toFixed(1)+','+lat.toFixed(1)+'&radius=50';
+  a('r4','<span class="dm">'+u.substring(0,80)+'...</span>');
+  try{const r=await ft(u,12000);const t=el(t0);const tx=await r.text();$('p4').textContent=tx.substring(0,2000);
+  const ls=tx.trim().split('\n').filter(l=>l&&!l.startsWith('#')&&!l.startsWith('-'));
+  if(ls.length<=1){a('r4','<span class="wa">No today data — confirms 24-48h latency</span> · '+t);R.swdi='latent'}
+  else{a('r4','Has data! '+ls.length+' lines · '+t,'ok');R.swdi='data'}
+  }catch(e){a('r4','<span class="er">FAILED: '+e.message+'</span>');R.swdi='failed'}
+}
+
+async function t5(){
+  const t0=performance.now();w('r5','Querying HRRR pressure levels...','wa');
+  const v='cape,convective_inhibition,lifted_index,temperature_2m,dewpoint_2m,wind_speed_10m,wind_direction_10m,wind_speed_925hPa,wind_direction_925hPa,wind_speed_850hPa,wind_direction_850hPa,wind_speed_700hPa,wind_direction_700hPa,wind_speed_500hPa,wind_direction_500hPa,geopotential_height_1000hPa,geopotential_height_925hPa,geopotential_height_850hPa,geopotential_height_500hPa,temperature_850hPa,temperature_500hPa';
+  const u='https://api.open-meteo.com/v1/gfs?latitude='+lat+'&longitude='+lon+'&hourly='+v+'&models=hrrr_conus&forecast_hours=6&past_hours=1&temperature_unit=fahrenheit&wind_speed_unit=kn';
+  a('r5','<span class="dm">'+u.substring(0,90)+'...</span>');
+  try{const r=await ft(u,12000);const t=el(t0);if(!r.ok){a('r5','HTTP '+r.status,'er');R.om='err';return}
+  const d=await r.json();$('p5').textContent=JSON.stringify(d,null,2).substring(0,4000);const h=d.hourly;
+  if(!h?.time){a('r5','No data','er');R.om='no-data';return}
+  const nh=new Date().toISOString().substring(0,13);let i=h.time.findIndex(t=>t.startsWith(nh));if(i<0)i=Math.min(1,h.time.length-1);
+  a('r5','<span class="ok">SUCCESS</span> · '+t+' · '+h.time.length+'h · '+Object.keys(h).length+' vars');R.om='success';
+  a('r5','Time: '+h.time[i],'dm');
+  const cape=h.cape?.[i],cin=h.convective_inhibition?.[i],li=h.lifted_index?.[i];
+  a('r5','CAPE: <span class="in">'+(cape!=null?cape:'-')+'</span> · CIN: <span class="in">'+(cin!=null?cin:'-')+'</span> · LI: <span class="in">'+(li!=null?li:'-')+'</span>');
+  const L=[{n:'SFC',s:h.wind_speed_10m?.[i],d:h.wind_direction_10m?.[i]},{n:'925',s:h.wind_speed_925hPa?.[i],d:h.wind_direction_925hPa?.[i]},{n:'850',s:h.wind_speed_850hPa?.[i],d:h.wind_direction_850hPa?.[i]},{n:'700',s:h.wind_speed_700hPa?.[i],d:h.wind_direction_700hPa?.[i]},{n:'500',s:h.wind_speed_500hPa?.[i],d:h.wind_direction_500hPa?.[i]}];
+  L.forEach(l=>a('r5',l.n+': <span class="in">'+(l.s!=null?l.s+'kt@'+l.d+'°':'NULL')+'</span>'));
+  const sf=L[0],f5=L[4],f9=L[1],toR=Math.PI/180;
+  if(sf.s!=null&&f5.s!=null){
+    const su=-sf.s*Math.sin(sf.d*toR),sv=-sf.s*Math.cos(sf.d*toR),u5=-f5.s*Math.sin(f5.d*toR),v5=-f5.s*Math.cos(f5.d*toR);
+    const sh6=Math.sqrt((u5-su)**2+(v5-sv)**2);a('r5','');a('r5','<span class="ok">0-6km SHEAR: '+sh6.toFixed(1)+' kt</span>');
+    if(f9.s!=null){const u9=-f9.s*Math.sin(f9.d*toR),v9=-f9.s*Math.cos(f9.d*toR);const sh1=Math.sqrt((u9-su)**2+(v9-sv)**2);a('r5','<span class="ok">0-1km SHEAR: '+sh1.toFixed(1)+' kt</span>');
+    if(cape!=null&&cape>0){const s6m=sh6*.514,lcl=h.geopotential_height_925hPa?.[i]||1500,lt=Math.max(0,Math.min(1,(2000-lcl)/1000));
+    a('r5','<span class="ok">STP (partial): '+((cape/1500)*lt*(s6m/20)).toFixed(2)+'</span>');a('r5','<span class="ok">SCP (rough): '+((cape/1000)*(s6m/20)).toFixed(2)+'</span>')}}
+  }
+  const t8=h.temperature_850hPa?.[i],t5v=h.temperature_500hPa?.[i];
+  if(t8!=null&&t5v!=null){const c8=(t8-32)*5/9,c5=(t5v-32)*5/9,g8=h.geopotential_height_850hPa?.[i]||1500,g5=h.geopotential_height_500hPa?.[i]||5600;
+  const lr=(c8-c5)/((g5-g8)/1000);a('r5','');a('r5','850-500 LAPSE: <span class="in">'+lr.toFixed(1)+' C/km</span> '+(lr>=7?'(steep)':lr>=6?'(cond unstable)':'(stable)'))}
+  }catch(e){a('r5','<span class="er">FAILED: '+e.message+'</span>');R.om='failed'}
+}
+
+async function run(){
+  if(!lat)return;$('go').disabled=true;$('go').textContent='RUNNING...';$('sv').style.display='none';
+  await t1();await t2();await t3();await t4();await t5();
+  let h='';
+  h+='IEM CORS: <span class="'+(R.cors?'ok':'er')+'">'+(R.cors?'ALLOWED':'BLOCKED')+'</span><br>';
+  h+='Storm Attrs: <span class="'+(R.sa==='success'?'ok':R.sa?.includes('ok')?'wa':'er')+'">'+(R.sa||'?')+'</span><br>';
+  h+='LSR GeoJSON: <span class="'+(R.lsr==='data'||R.lsr==='empty-ok'?'ok':'er')+'">'+(R.lsr||'?')+'</span><br>';
+  h+='NCEI SWDI: <span class="wa">'+(R.swdi||'?')+'</span><br>';
+  h+='Open-Meteo: <span class="'+(R.om==='success'?'ok':'er')+'">'+(R.om||'?')+'</span>';
+  if(!R.cors)h+='<br><br><span class="wa">IEM CORS blocked — Cloudflare Worker proxy needed (free tier, 5 min setup)</span>';
+  if(R.cors&&R.sa==='empty-ok')h+='<br><br><span class="ok">IEM endpoint works! No storms — retest during active weather.</span>';
+  if(R.cors&&R.sa==='success')h+='<br><br><span class="ok">FULL SUCCESS. Storm cell data is live and parseable. Game changer.</span>';
+  $('vd').innerHTML=h;$('sv').style.display='block';$('go').disabled=false;$('go').textContent='RUN AGAIN';
+}
+</script>
+</body>
+</html>
