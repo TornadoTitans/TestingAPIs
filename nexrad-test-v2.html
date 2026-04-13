@@ -91,7 +91,8 @@ async function t1(){
 async function t2(){
   const t0=performance.now();w('r2','Querying '+nr+' (last 2h)...','wa');
   const n=new Date(),ag=new Date(n.getTime()-2*3600000);
-  const u='https://mesonet.agron.iastate.edu/cgi-bin/request/gis/nexrad_storm_attrs.py?radar='+nr+'&fmt=csv&year1='+ag.getUTCFullYear()+'&month1='+(ag.getUTCMonth()+1)+'&day1='+ag.getUTCDate()+'&hour1='+ag.getUTCHours()+'&minute1='+ag.getUTCMinutes()+'&year2='+n.getUTCFullYear()+'&month2='+(n.getUTCMonth()+1)+'&day2='+n.getUTCDate()+'&hour2='+n.getUTCHours()+'&minute2='+n.getUTCMinutes();
+  const rid=nr.replace(/^K/,'');
+  const u='https://mesonet.agron.iastate.edu/cgi-bin/request/gis/nexrad_storm_attrs.py?radar='+rid+'&fmt=csv&year1='+ag.getUTCFullYear()+'&month1='+(ag.getUTCMonth()+1)+'&day1='+ag.getUTCDate()+'&hour1='+ag.getUTCHours()+'&minute1='+ag.getUTCMinutes()+'&year2='+n.getUTCFullYear()+'&month2='+(n.getUTCMonth()+1)+'&day2='+n.getUTCDate()+'&hour2='+n.getUTCHours()+'&minute2='+n.getUTCMinutes();
   a('r2','<span class="dm">'+u.substring(0,90)+'...</span>');
   try{
     const r=await ft(u,15000);const t=el(t0);
@@ -147,7 +148,7 @@ async function t4(){
 async function t5(){
   const t0=performance.now();w('r5','Querying HRRR pressure levels...','wa');
   const v='cape,convective_inhibition,lifted_index,temperature_2m,dewpoint_2m,wind_speed_10m,wind_direction_10m,wind_speed_925hPa,wind_direction_925hPa,wind_speed_850hPa,wind_direction_850hPa,wind_speed_700hPa,wind_direction_700hPa,wind_speed_500hPa,wind_direction_500hPa,geopotential_height_1000hPa,geopotential_height_925hPa,geopotential_height_850hPa,geopotential_height_500hPa,temperature_850hPa,temperature_500hPa';
-  const u='https://api.open-meteo.com/v1/gfs?latitude='+lat+'&longitude='+lon+'&hourly='+v+'&models=hrrr_conus&forecast_hours=6&past_hours=1&temperature_unit=fahrenheit&wind_speed_unit=kn';
+  const u='https://api.open-meteo.com/v1/gfs?latitude='+lat+'&longitude='+lon+'&hourly='+v+'&models=gfs_seamless&forecast_hours=6&past_hours=1&temperature_unit=fahrenheit&wind_speed_unit=kn';
   a('r5','<span class="dm">'+u.substring(0,90)+'...</span>');
   try{const r=await ft(u,12000);const t=el(t0);if(!r.ok){a('r5','HTTP '+r.status,'er');R.om='err';return}
   const d=await r.json();$('p5').textContent=JSON.stringify(d,null,2).substring(0,4000);const h=d.hourly;
