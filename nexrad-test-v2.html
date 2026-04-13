@@ -89,36 +89,75 @@ async function t1(){
 }
 
 async function t2(){
-  const t0=performance.now();w('r2','Querying '+nr+' (last 2h)...','wa');
-  const n=new Date(),ag=new Date(n.getTime()-2*3600000);
+  const t0=performance.now();w('r2','Querying '+nr+' (last 1h, hail ≥ 0.5")...','wa');
+  const n=new Date(),ag=new Date(n.getTime()-1*3600000);
   const rid=nr.replace(/^K/,'');
   const u='https://mesonet.agron.iastate.edu/cgi-bin/request/gis/nexrad_storm_attrs.py?radar='+rid+'&fmt=csv&year1='+ag.getUTCFullYear()+'&month1='+(ag.getUTCMonth()+1)+'&day1='+ag.getUTCDate()+'&hour1='+ag.getUTCHours()+'&minute1='+ag.getUTCMinutes()+'&year2='+n.getUTCFullYear()+'&month2='+(n.getUTCMonth()+1)+'&day2='+n.getUTCDate()+'&hour2='+n.getUTCHours()+'&minute2='+n.getUTCMinutes();
   a('r2','<span class="dm">'+u.substring(0,90)+'...</span>');
+  $('cards').innerHTML='';
   try{
     const r=await ft(u,15000);const t=el(t0);
     if(!r.ok){a('r2','HTTP '+r.status+' — '+t,'er');R.sa='http-err';return}
     const tx=await r.text();$('p2').textContent=tx.substring(0,4000);
     const ls=tx.trim().split('\n').filter(l=>l&&!l.startsWith('#'));
     if(ls.length<=1){
-      a('r2','<span class="wa">No storm cells from '+nr+' in last 2 hours</span> — '+t);
-      if(tx.length>5){a('r2','<span class="ok">ENDPOINT WORKS</span> — just no storms nearby. Headers: '+ls[0]?.substring(0,60));R.sa='empty-ok'}
+      a('r2','<span class="wa">No storm cells from '+nr+' in last hour</span> — '+t);
+      if(tx.length>5){a('r2','<span class="ok">ENDPOINT WORKS</span> — just no storms. Headers: '+ls[0]?.substring(0,60));R.sa='empty-ok'}
       else{a('r2','Empty response','wa');R.sa='empty'}
       return
     }
-    a('r2','<span class="ok">'+( ls.length-1)+' STORM CELLS</span> — '+t);R.sa='success';
-    const hd=ls[0].split(',').map(h=>h.trim()),cd=$('cards');cd.innerHTML='';
-    const storms=[];
-    for(let i=1;i<ls.length;i++){const v=ls[i].split(',');const s={};hd.forEach((h,j)=>s[h]=v[j]?.trim()||'');storms.push(s)}
-    const last=storms[storms.length-1],tf=last.VALID||'';
+
+    // Parse all storms
+    const hd=ls[0].split(',').map(h=>h.trim());
+    const allStorms=[];
+    for(let i=1;i<ls.length;i++){const v=ls[i].split(',');const s={};hd.forEach((h,j)=>s[h]=v[j]?.trim()||'');allStorms.push(s)}
+    a('r2','<span class="ok">'+allStorms.length+' total cells</span> — '+t);R.sa='success';
+
+    // Latency check
+    const last=allStorms[allStorms.length-1],tf=last.VALID||'';
     if(tf){const dt=new Date(tf.includes('Z')?tf:tf+'Z'),am=Math.round((n-dt)/60000);a('r2','LATENCY: <span class="'+(am<=5?'ok':am<=15?'wa':'er')+'">'+am+' min old</span>')}
-    storms.slice(-6).forEach(s=>{
-      const tv=!!(s.TVS||'').match(/Y|TVS/i),ms=parseInt(s.MESO||'0');
-      const d=document.createElement('div');d.className='sc'+(tv?' t':ms>0?' m':'');
-      d.innerHTML='<b>'+nr+' · '+( s.STORM_ID||'?')+'</b> <span class="dm">'+( s.VALID||'')+'</span><br>TOP: '+(parseFloat(s.TOP||0)>0?parseFloat(s.TOP).toFixed(1)+'K':'—')+' · dBZ: '+(s.MAX_DBZ||'—')+' · VIL: '+(s.VIL||'—')+'<br>POSH: '+(s.POSH||0)+'% · HAIL: '+(parseFloat(s.MAX_SIZE||0)>0?s.MAX_SIZE+'"':'—')+' · TVS: <span class="'+(tv?'hi':'')+'">'+(s.TVS||'NONE')+'</span> · MESO: <span class="'+(ms>0?'hi':'')+'">'+(s.MESO||'NONE')+'</span>';
-      cd.appendChild(d)
-    });
-    if(storms.length>6){const x=document.createElement('div');x.className='dm';x.style.fontSize='9px';x.style.marginTop='4px';x.textContent='Showing last 6 of '+storms.length;cd.appendChild(x)}
+
+    // Filter: hail >= 0.5"
+    const hailCells=allStorms.filter(s=>parseFloat(s.MAX_SIZE||'0')>=0.50);
+    a('r2','');
+    if(hailCells.length===0){
+      a('r2','<span class="dm">No cells with hail ≥ 0.5" in last hour ('+allStorms.length+' total cells checked)</span>');
+      // Show top 5 by VIL as fallback
+      const byVil=[...allStorms].sort((a,b)=>parseInt(b.VIL||'0')-parseInt(a.VIL||'0')).slice(0,5);
+      if(byVil.length>0){
+        a('r2','<span class="wa">Showing top 5 cells by VIL instead:</span>');
+        renderCells(byVil);
+      }
+    }else{
+      // Sort by time (newest first), take 5
+      const recent=hailCells.slice(-5);
+      a('r2','<span class="hi">'+hailCells.length+' CELLS WITH HAIL ≥ 0.5"</span> — showing latest 5:');
+      renderCells(recent);
+    }
+
+    // Also show any TVS or strong meso
+    const tvsOrMeso=allStorms.filter(s=>!!(s.TVS||'').match(/Y|TVS/i)||parseInt(s.MESO||'0')>=5);
+    if(tvsOrMeso.length>0){
+      a('r2','');
+      a('r2','<span class="hi">⚠ '+tvsOrMeso.length+' CELLS WITH TVS OR STRONG MESO (≥5):</span>');
+      renderCells(tvsOrMeso.slice(-3),'t');
+    }
+
   }catch(e){a('r2','<span class="er">FAILED: '+e.message+'</span>');R.sa='failed'}
+}
+
+function renderCells(cells,forceClass){
+  const cd=$('cards');
+  cells.forEach(s=>{
+    const tv=!!(s.TVS||'').match(/Y|TVS/i),ms=parseInt(s.MESO||'0'),hz=parseFloat(s.MAX_SIZE||'0');
+    const d=document.createElement('div');
+    d.className='sc'+(forceClass==='t'||tv?' t':ms>0?' m':hz>=1.0?' m':'');
+    d.innerHTML='<b>'+nr+' · '+(s.STORM_ID||'?')+'</b> <span class="dm">'+(s.VALID||'')+'</span><br>'+
+      'TOP: '+(parseFloat(s.TOP||0)>0?parseFloat(s.TOP).toFixed(1)+'K FT':'—')+' · dBZ: '+(s.MAX_DBZ||'—')+' · VIL: '+(s.VIL||'—')+'<br>'+
+      'POSH: '+(s.POSH||0)+'% · MAX HAIL: <span class="'+(hz>=1.0?'hi':hz>=0.5?'ok':'')+'">'+(hz>0?hz+'"':'—')+'</span> · '+
+      'TVS: <span class="'+(tv?'hi':'')+'">'+(s.TVS||'NONE')+'</span> · MESO: <span class="'+(ms>=5?'hi':ms>0?'wa':'')+'">'+(s.MESO||'NONE')+'</span>';
+    cd.appendChild(d);
+  });
 }
 
 async function t3(){
@@ -146,31 +185,223 @@ async function t4(){
 }
 
 async function t5(){
-  const t0=performance.now();w('r5','Querying HRRR pressure levels...','wa');
-  const v='cape,convective_inhibition,lifted_index,temperature_2m,dewpoint_2m,wind_speed_10m,wind_direction_10m,wind_speed_925hPa,wind_direction_925hPa,wind_speed_850hPa,wind_direction_850hPa,wind_speed_700hPa,wind_direction_700hPa,wind_speed_500hPa,wind_direction_500hPa,geopotential_height_1000hPa,geopotential_height_925hPa,geopotential_height_850hPa,geopotential_height_500hPa,temperature_850hPa,temperature_500hPa';
+  const t0=performance.now();w('r5','Querying pressure levels (every 50mb sfc→500)...','wa');
+  // 11 pressure levels: 1000,950,900,850,800,750,700,650,600,550,500
+  const plevs=[1000,950,900,850,800,750,700,650,600,550,500];
+  const pvars=[];
+  plevs.forEach(p=>{pvars.push('wind_speed_'+p+'hPa','wind_direction_'+p+'hPa','temperature_'+p+'hPa','geopotential_height_'+p+'hPa')});
+  const v=['cape','convective_inhibition','lifted_index','temperature_2m','dewpoint_2m','wind_speed_10m','wind_direction_10m',...pvars].join(',');
   const u='https://api.open-meteo.com/v1/gfs?latitude='+lat+'&longitude='+lon+'&hourly='+v+'&models=gfs_seamless&forecast_hours=6&past_hours=1&temperature_unit=fahrenheit&wind_speed_unit=kn';
-  a('r5','<span class="dm">'+u.substring(0,90)+'...</span>');
-  try{const r=await ft(u,12000);const t=el(t0);if(!r.ok){a('r5','HTTP '+r.status,'er');R.om='err';return}
-  const d=await r.json();$('p5').textContent=JSON.stringify(d,null,2).substring(0,4000);const h=d.hourly;
+  a('r5','<span class="dm">'+v.split(',').length+' variables requested</span>');
+  try{const r=await ft(u,15000);const t=el(t0);
+  if(!r.ok){const tx=await r.text();a('r5','HTTP '+r.status+' — '+t,'er');a('r5','<span class="dm">'+tx.substring(0,200)+'</span>');R.om='err';return}
+  const d=await r.json();$('p5').textContent=JSON.stringify(d,null,2).substring(0,6000);const h=d.hourly;
   if(!h?.time){a('r5','No data','er');R.om='no-data';return}
-  const nh=new Date().toISOString().substring(0,13);let i=h.time.findIndex(t=>t.startsWith(nh));if(i<0)i=Math.min(1,h.time.length-1);
-  a('r5','<span class="ok">SUCCESS</span> · '+t+' · '+h.time.length+'h · '+Object.keys(h).length+' vars');R.om='success';
-  a('r5','Time: '+h.time[i],'dm');
-  const cape=h.cape?.[i],cin=h.convective_inhibition?.[i],li=h.lifted_index?.[i];
-  a('r5','CAPE: <span class="in">'+(cape!=null?cape:'-')+'</span> · CIN: <span class="in">'+(cin!=null?cin:'-')+'</span> · LI: <span class="in">'+(li!=null?li:'-')+'</span>');
-  const L=[{n:'SFC',s:h.wind_speed_10m?.[i],d:h.wind_direction_10m?.[i]},{n:'925',s:h.wind_speed_925hPa?.[i],d:h.wind_direction_925hPa?.[i]},{n:'850',s:h.wind_speed_850hPa?.[i],d:h.wind_direction_850hPa?.[i]},{n:'700',s:h.wind_speed_700hPa?.[i],d:h.wind_direction_700hPa?.[i]},{n:'500',s:h.wind_speed_500hPa?.[i],d:h.wind_direction_500hPa?.[i]}];
-  L.forEach(l=>a('r5',l.n+': <span class="in">'+(l.s!=null?l.s+'kt@'+l.d+'°':'NULL')+'</span>'));
-  const sf=L[0],f5=L[4],f9=L[1],toR=Math.PI/180;
-  if(sf.s!=null&&f5.s!=null){
-    const su=-sf.s*Math.sin(sf.d*toR),sv=-sf.s*Math.cos(sf.d*toR),u5=-f5.s*Math.sin(f5.d*toR),v5=-f5.s*Math.cos(f5.d*toR);
-    const sh6=Math.sqrt((u5-su)**2+(v5-sv)**2);a('r5','');a('r5','<span class="ok">0-6km SHEAR: '+sh6.toFixed(1)+' kt</span>');
-    if(f9.s!=null){const u9=-f9.s*Math.sin(f9.d*toR),v9=-f9.s*Math.cos(f9.d*toR);const sh1=Math.sqrt((u9-su)**2+(v9-sv)**2);a('r5','<span class="ok">0-1km SHEAR: '+sh1.toFixed(1)+' kt</span>');
-    if(cape!=null&&cape>0){const s6m=sh6*.514,lcl=h.geopotential_height_925hPa?.[i]||1500,lt=Math.max(0,Math.min(1,(2000-lcl)/1000));
-    a('r5','<span class="ok">STP (partial): '+((cape/1500)*lt*(s6m/20)).toFixed(2)+'</span>');a('r5','<span class="ok">SCP (rough): '+((cape/1000)*(s6m/20)).toFixed(2)+'</span>')}}
+  const nh=new Date().toISOString().substring(0,13);let idx=h.time.findIndex(t=>t.startsWith(nh));if(idx<0)idx=Math.min(1,h.time.length-1);
+  a('r5','<span class="ok">SUCCESS</span> · '+t+' · '+Object.keys(h).length+' vars · '+h.time.length+' hours');R.om='success';
+  a('r5','Time: '+h.time[idx],'dm');
+
+  // Surface params
+  const cape=h.cape?.[idx],cin=h.convective_inhibition?.[idx],li=h.lifted_index?.[idx];
+  a('r5','CAPE: <span class="in">'+(cape??'—')+'</span> · CIN: <span class="in">'+(cin??'—')+'</span> · LI: <span class="in">'+(li??'—')+'</span>');
+  a('r5','');
+
+  // Build wind profile
+  const toR=Math.PI/180, ktToMs=0.514444;
+  const profile=[]; // {hPa, spdKt, dir, u, v, tmpF, gph}
+  // Surface
+  const sfcSpd=h.wind_speed_10m?.[idx],sfcDir=h.wind_direction_10m?.[idx];
+  if(sfcSpd!=null){
+    const su=-sfcSpd*Math.sin(sfcDir*toR),sv=-sfcSpd*Math.cos(sfcDir*toR);
+    profile.push({hPa:'SFC',spdKt:sfcSpd,dir:sfcDir,u:su,v:sv,tmpF:h.temperature_2m?.[idx],gph:h.geopotential_height_1000hPa?.[idx]||0});
+    a('r5','<span class="in">SFC: '+sfcSpd.toFixed(1)+'kt @ '+sfcDir+'°</span>');
   }
-  const t8=h.temperature_850hPa?.[i],t5v=h.temperature_500hPa?.[i];
-  if(t8!=null&&t5v!=null){const c8=(t8-32)*5/9,c5=(t5v-32)*5/9,g8=h.geopotential_height_850hPa?.[i]||1500,g5=h.geopotential_height_500hPa?.[i]||5600;
-  const lr=(c8-c5)/((g5-g8)/1000);a('r5','');a('r5','850-500 LAPSE: <span class="in">'+lr.toFixed(1)+' C/km</span> '+(lr>=7?'(steep)':lr>=6?'(cond unstable)':'(stable)'))}
+  // Pressure levels
+  let nullCount=0;
+  plevs.forEach(p=>{
+    const spd=h['wind_speed_'+p+'hPa']?.[idx];
+    const dir=h['wind_direction_'+p+'hPa']?.[idx];
+    const tmp=h['temperature_'+p+'hPa']?.[idx];
+    const gph=h['geopotential_height_'+p+'hPa']?.[idx];
+    if(spd!=null&&dir!=null){
+      const u=-spd*Math.sin(dir*toR),v=-spd*Math.cos(dir*toR);
+      profile.push({hPa:p,spdKt:spd,dir:dir,u:u,v:v,tmpF:tmp,gph:gph});
+      a('r5','<span class="in">'+p+': '+spd.toFixed(1)+'kt @ '+dir+'° · '+(tmp!=null?tmp.toFixed(0)+'°F':'—')+' · '+(gph!=null?Math.round(gph)+'m':'—')+'</span>');
+    }else{nullCount++}
+  });
+  if(nullCount>0)a('r5','('+nullCount+' levels returned NULL)','dm');
+  a('r5','');
+
+  if(profile.length<3){a('r5','Not enough levels for composites','wa');return}
+
+  // ── BULK SHEAR ──────────────────────────────────────
+  const sfc=profile[0];
+  const find=hPa=>profile.find(p=>p.hPa===hPa);
+  const p500=find(500),p900=find(900),p850=find(850);
+  
+  if(p500){
+    const sh6=Math.sqrt((p500.u-sfc.u)**2+(p500.v-sfc.v)**2);
+    a('r5','<span class="ok">0-6km BULK SHEAR: '+sh6.toFixed(1)+' kt ('+( sh6*ktToMs).toFixed(1)+' m/s)</span>');
+  }
+  if(p900){
+    const sh1=Math.sqrt((p900.u-sfc.u)**2+(p900.v-sfc.v)**2);
+    a('r5','<span class="ok">0-1km BULK SHEAR: '+sh1.toFixed(1)+' kt ('+(sh1*ktToMs).toFixed(1)+' m/s)</span>');
+  }
+  if(p850&&p500){
+    const esh=Math.sqrt((p500.u-p850.u)**2+(p500.v-p850.v)**2);
+    a('r5','<span class="ok">850-500 SHEAR: '+esh.toFixed(1)+' kt ('+(esh*ktToMs).toFixed(1)+' m/s)</span>');
+  }
+  a('r5','');
+
+  // ── BUNKERS STORM MOTION + SRH ──────────────────────
+  // Mean wind 0-6km (average all levels from sfc to 500)
+  let sumU=0,sumV=0,cnt=0;
+  profile.forEach(p=>{sumU+=p.u;sumV+=p.v;cnt++});
+  const mnU=sumU/cnt,mnV=sumV/cnt;
+  const mnSpd=Math.sqrt(mnU**2+mnV**2);
+  const mnDir=(Math.atan2(-mnU,-mnV)/toR+360)%360;
+  a('r5','Mean wind: '+mnSpd.toFixed(1)+'kt @ '+mnDir.toFixed(0)+'°','dm');
+
+  // 0-500m shear vector (SFC to ~950 hPa)
+  const low=find(950)||find(900);
+  if(low&&sfc){
+    const shU=low.u-sfc.u, shV=low.v-sfc.v;
+    // Bunkers deviation: 7.5 m/s perpendicular to shear, to the right
+    const dev=7.5/ktToMs; // in knots
+    const shMag=Math.sqrt(shU**2+shV**2);
+    if(shMag>0.1){
+      const nU=shU/shMag, nV=shV/shMag;
+      // Right-perpendicular: rotate 90° clockwise
+      const rpU=nV, rpV=-nU;
+      const rmU=mnU+rpU*dev*ktToMs, rmV=mnV+rpV*dev*ktToMs;
+      const rmSpd=Math.sqrt(rmU**2+rmV**2);
+      const rmDir=(Math.atan2(-rmU,-rmV)/toR+360)%360;
+      a('r5','Bunkers R-mover: '+rmSpd.toFixed(1)+'kt @ '+rmDir.toFixed(0)+'°','dm');
+
+      // SRH computation: integrate helicity from SFC through 0-1km (~900 hPa) and 0-3km (~700 hPa)
+      // SRH = Σ [(u[k]-cx)(v[k+1]-cy) - (u[k+1]-cx)(v[k]-cy)]
+      // where cx,cy = storm motion components
+      const cx=rmU*ktToMs, cy=rmV*ktToMs;
+      let srh1=0,srh3=0;
+      const p1km=[900,950]; // levels roughly in 0-1km
+      const p3km=[900,950,850,800,750,700]; // levels in 0-3km
+
+      // Full SRH using all adjacent level pairs
+      for(let k=0;k<profile.length-1;k++){
+        const a1=profile[k],b1=profile[k+1];
+        const auMs=a1.u*ktToMs,avMs=a1.v*ktToMs,buMs=b1.u*ktToMs,bvMs=b1.v*ktToMs;
+        const cross=(auMs-cx)*(bvMs-cy)-(buMs-cx)*(avMs-cy);
+        srh3+=cross;
+        // Check if this layer pair is in 0-1km
+        const aGph=a1.gph||0,bGph=b1.gph||0;
+        const sfcGph=profile[0].gph||0;
+        if((aGph-sfcGph)<1100&&(bGph-sfcGph)<1100) srh1+=cross;
+      }
+
+      a('r5','');
+      a('r5','<span class="ok">0-1km SRH: '+srh1.toFixed(0)+' m²/s²</span>');
+      a('r5','<span class="ok">0-3km SRH: '+srh3.toFixed(0)+' m²/s²</span>');
+
+      // ── COMPOSITE PARAMETERS ──────────────────────────
+      if(cape!=null&&cape>0){
+        a('r5','');
+        const s6=p500?Math.sqrt((p500.u-sfc.u)**2+(p500.v-sfc.v)**2)*ktToMs:0;
+        const lcl=find(950)?.gph||(find(900)?.gph)||1500;
+        const sfcGph=profile[0].gph||0;
+        const lclAgl=lcl-sfcGph;
+
+        // STP = (CAPE/1500) × ((2000-LCL)/1000) × (SRH1/150) × (shear6/20)
+        const lclTerm=Math.max(0,Math.min(1,(2000-lclAgl)/1000));
+        const cinTerm=cin!=null?Math.max(0,Math.min(1,(200+cin)/150)):1;
+        const stp=(cape/1500)*lclTerm*(Math.abs(srh1)/150)*(s6/20)*cinTerm;
+
+        // SCP = (CAPE/1000) × (SRH3/50) × (shear6/20)
+        const scp=(cape/1000)*(Math.abs(srh3)/50)*(s6/20);
+
+        a('r5','<span class="ok">STP (FULL): '+stp.toFixed(2)+'</span>'+(stp>=1?' <span class="hi">⚠ SIGNIFICANT TORNADO ENVIRONMENT</span>':stp>=0.5?' (marginal)':' (low)'));
+        a('r5','<span class="ok">SCP (FULL): '+scp.toFixed(2)+'</span>'+(scp>=1?' <span class="hi">SUPERCELL FAVORABLE</span>':' (subcritical)'));
+
+        // ── 0-3km CAPE ───────────────────────────────────
+        // Lift surface parcel through profile, integrate positive buoyancy below 3km AGL
+        const sfcTc=(h.temperature_2m?.[idx]-32)*5/9;
+        const sfcTdF=h.dewpoint_2m?.[idx];
+        if(sfcTc!=null&&sfcTdF!=null){
+          const sfcTdC=(sfcTdF-32)*5/9;
+          const sfcGphM=profile[0].gph||0;
+
+          // Saturation vapor pressure (Bolton)
+          const es=t=>6.112*Math.exp(17.67*t/(t+243.5));
+          // Mixing ratio
+          const mixr=(t,p)=>0.622*es(t)/(p-es(t));
+          // LCL temperature (Bolton 1980)
+          const tK=sfcTc+273.15,tdK=sfcTdC+273.15;
+          const lclT=1/(1/(tdK-56)+Math.log(tK/tdK)/800)+56;
+          const lclC=lclT-273.15;
+          // Estimate LCL pressure from temperature
+          const sfcP=profile.length>1&&profile[1].hPa?profile[1].hPa:1000;
+          const lclP=sfcP*Math.pow(lclT/tK,3.5);
+
+          // Moist adiabatic lapse rate at given T(°C) and p(hPa)
+          const moistLapse=(tc,p)=>{
+            const T=tc+273.15,Lv=2.501e6,Rd=287,Rv=461.5,cp=1005;
+            const ws=mixr(tc,p);
+            return 9.8*(1+Lv*ws/(Rd*T))/(1+Lv*Lv*ws/(cp*Rv*T*T));
+          };
+
+          // Build environmental profile with heights in m AGL and temp in °C
+          const envLevels=profile.filter(p=>p.tmpF!=null&&p.gph!=null).map(p=>({
+            gphAgl:p.gph-sfcGphM,
+            tc:(p.tmpF-32)*5/9,
+            hPa:typeof p.hPa==='number'?p.hPa:1013
+          })).sort((a,b)=>a.gphAgl-b.gphAgl);
+
+          let cape3=0;
+          let parcelT=sfcTc;
+          let belowLCL=true;
+
+          for(let k=0;k<envLevels.length-1;k++){
+            const lo=envLevels[k],hi=envLevels[k+1];
+            if(hi.gphAgl>3000) break; // only below 3km
+            const dz=hi.gphAgl-lo.gphAgl;
+            if(dz<=0) continue;
+
+            // Lift parcel through this layer
+            const pMid=typeof lo.hPa==='number'&&typeof hi.hPa==='number'?(lo.hPa+hi.hPa)/2:850;
+            if(belowLCL&&parcelT<=lclC) belowLCL=false;
+            const lapse=belowLCL?9.8:moistLapse(parcelT,pMid);
+            const parcelTtop=parcelT-lapse*(dz/1000);
+
+            // Average buoyancy in layer
+            const envTavg=(lo.tc+hi.tc)/2;
+            const parcelTavg=(parcelT+parcelTtop)/2;
+            const buoyancy=(parcelTavg-envTavg)/((envTavg+273.15)||1)*9.81;
+            if(buoyancy>0) cape3+=buoyancy*dz;
+
+            parcelT=parcelTtop;
+          }
+
+          a('r5','');
+          a('r5','<span class="ok">0-3km CAPE: '+cape3.toFixed(0)+' J/kg</span>'+(cape3>=100?' <span class="hi">SIGNIFICANT LOW-LEVEL INSTABILITY</span>':cape3>=50?' (moderate)':' (weak)'));
+          a('r5','<span class="dm">LCL: ~'+Math.round(lclT-273.15)+'°C at ~'+Math.round(lclP)+'hPa</span>');
+        }
+      }else{
+        a('r5','');a('r5','CAPE is 0 or null — composite params not applicable','dm');
+      }
+    }
+  }
+
+  // ── LAPSE RATES ─────────────────────────────────────
+  a('r5','');
+  const lrPairs=[[850,500,'850-500'],[700,500,'700-500'],[850,700,'850-700']];
+  lrPairs.forEach(([top,bot,label])=>{
+    const pT=find(top),pB=find(bot);
+    if(pT?.tmpF!=null&&pB?.tmpF!=null&&pT?.gph!=null&&pB?.gph!=null){
+      const tC=(pT.tmpF-32)*5/9,bC=(pB.tmpF-32)*5/9;
+      const lr=(tC-bC)/((pB.gph-pT.gph)/1000);
+      a('r5',label+' LAPSE: <span class="in">'+lr.toFixed(1)+' °C/km</span> '+(lr>=7?'(steep!)':lr>=6?'(cond unstable)':'(stable)'));
+    }
+  });
+
   }catch(e){a('r5','<span class="er">FAILED: '+e.message+'</span>');R.om='failed'}
 }
 
