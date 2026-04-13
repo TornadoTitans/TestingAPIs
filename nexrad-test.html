@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>TT · NEXRAD Data Probe</title>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,600;0,700;0,900;1,900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --orange:#fba752; --dark-blue:#1b263b; --bg:#0e1520;
+      --green:#8bc34a; --red:#f44336; --teal:#7ccdd1;
+      --yellow:#ffeb3b; --pink:#ff64eb; --white:#f3f3f3;
+    }
+    *{margin:0;padding:0;box-sizing:border-box;}
+    body{background:var(--bg);color:var(--white);font-family:'Share Tech Mono',monospace;padding:12px;overflow-y:auto;min-height:100vh;}
+    h1{font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:900;font-style:italic;color:var(--orange);letter-spacing:.06em;margin-bottom:4px;}
+    .sub{font-size:10px;color:rgba(243,243,243,.4);letter-spacing:.1em;margin-bottom:16px;}
+    .section{background:rgba(27,38,59,.6);border:1px solid rgba(251,167,82,.15);border-radius:6px;padding:12px;margin-bottom:12px;}
+    .section-title{font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--orange);margin-bottom:8px;}
+    .status{font-size:11px;line-height:1.6;word-break:break-all;}
+    .ok{color:var(--green);} .err{color:var(--red);} .warn{color:var(--yellow);} .info{color:var(--teal);}
+    .dim{color:rgba(243,243,243,.35);}
+    button{
+      display:block;width:100%;padding:14px;margin-bottom:12px;
+      background:rgba(251,167,82,.1);border:1px solid rgba(251,167,82,.4);border-radius:6px;
+      font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;
+      letter-spacing:.12em;text-transform:uppercase;color:var(--orange);cursor:pointer;
+    }
+    button:active{background:rgba(251,167,82,.25);}
+    button:disabled{opacity:.3;cursor:default;}
+    .storm-card{
+      background:rgba(27,38,59,.8);border-left:3px solid var(--teal);
+      padding:8px 10px;margin-top:8px;font-size:11px;line-height:1.5;
+    }
+    .storm-card.has-meso{border-left-color:var(--yellow);}
+    .storm-card.has-tvs{border-left-color:var(--pink);}
+    .storm-card .label{color:var(--orange);font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;letter-spacing:.1em;}
+    .storm-card .val{color:var(--white);}
+    .storm-card .highlight{color:var(--pink);font-weight:bold;}
+    pre{font-size:10px;line-height:1.4;color:rgba(243,243,243,.5);white-space:pre-wrap;word-break:break-all;max-height:300px;overflow-y:auto;margin-top:6px;padding:8px;background:rgba(0,0,0,.3);border-radius:4px;}
+    .test-num{display:inline-block;width:18px;height:18px;line-height:18px;text-align:center;border-radius:50%;background:var(--orange);color:var(--bg);font-size:10px;font-weight:bold;margin-right:6px;}
+  </style>
+</head>
+<body>
+
+<h1>NEXRAD DATA PROBE</h1>
+<div class="sub">TESTING IEM STORM ATTRIBUTE FEEDS FOR TITAN TRACK</div>
+
+<button id="btn-run" onclick="runAllTests()">▶ RUN ALL TESTS</button>
+
+<!-- GPS -->
+<div class="section" id="sec-gps">
+  <div class="section-title"><span class="test-num">1</span>GPS LOCK</div>
+  <div class="status dim" id="gps-status">Waiting...</div>
+</div>
+
+<!-- Nearest RADAR -->
+<div class="section" id="sec-radar">
+  <div class="section-title"><span class="test-num">2</span>NEAREST NEXRAD (IEM JSON)</div>
+  <div class="status dim" id="radar-status">Waiting for GPS...</div>
+  <pre id="radar-raw" style="display:none;"></pre>
+</div>
+
+<!-- Storm Attributes CSV -->
+<div class="section" id="sec-attrs">
+  <div class="section-title"><span class="test-num">3</span>STORM ATTRIBUTES — CSV BACKEND</div>
+  <div class="status dim" id="attrs-status">Waiting for radar...</div>
+  <pre id="attrs-raw" style="display:none;"></pre>
+  <div id="attrs-cards"></div>
+</div>
+
+<!-- IEM LSR GeoJSON -->
+<div class="section" id="sec-lsr">
+  <div class="section-title"><span class="test-num">4</span>IEM LSR GEOJSON (NEARBY)</div>
+  <div class="status dim" id="lsr-status">Waiting for GPS...</div>
+  <pre id="lsr-raw" style="display:none;"></pre>
+</div>
+
+<!-- NCEI SWDI JSON (latency check) -->
+<div class="section" id="sec-swdi">
+  <div class="section-title"><span class="test-num">5</span>NCEI SWDI JSON (LATENCY CHECK)</div>
+  <div class="status dim" id="swdi-status">Waiting for GPS...</div>
+  <pre id="swdi-raw" style="display:none;"></pre>
+</div>
+
+<!-- Open-Meteo pressure levels -->
+<div class="section" id="sec-meteo">
+  <div class="section-title"><span class="test-num">6</span>OPEN-METEO PRESSURE LEVEL WINDS</div>
+  <div class="status dim" id="meteo-status">Waiting for GPS...</div>
+  <pre id="meteo-raw" style="display:none;"></pre>
+</div>
+
+<!-- Summary -->
+<div class="section" id="sec-summary" style="display:none;">
+  <div class="section-title">VERDICT</div>
+  <div id="summary-status"></div>
+</div>
+
+<script>
+let lat=null, lon=null, nearestRadar=null;
+
+function log(id, msg, cls='') {
+  const el = document.getElementById(id);
+  el.className = 'status ' + cls;
+  el.innerHTML = msg;
+}
+function logAppend(id, msg, cls='') {
+  const el = document.getElementById(id);
+  el.innerHTML += '<br>' + (cls ? `<span class="${cls}">${msg}</span>` : msg);
+}
+function showRaw(id, text) {
+  const el = document.getElementById(id);
+  el.style.display = 'block';
+  el.textContent = text.substring(0, 5000);
+}
+function elapsed(start) { return ((performance.now()-start)/1000).toFixed(2)+'s'; }
+
+// ── TEST 1: GPS ─────────────────────────────────────────────────
+function getGPS() {
+  return new Promise((resolve, reject) => {
+    log('gps-status', 'Requesting GPS...', 'warn');
+    if (!navigator.geolocation) {
+      log('gps-status', 'Geolocation not available', 'err');
+      reject('no geolocation');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        lat = pos.coords.latitude;
+        lon = pos.coords.longitude;
+        log('gps-status',
+          `<span class="ok">LOCKED</span> · ${lat.toFixed(4)}, ${lon.toFixed(4)} · Accuracy: ${Math.round(pos.coords.accuracy)}m`,
+          '');
+        resolve();
+      },
+      err => {
+        log('gps-status', 'GPS error: '+err.message+' — Using Albuquerque default', 'warn');
+        lat = 35.0844; lon = -106.6504;
+        logAppend('gps-status', `Using fallback: ${lat}, ${lon}`, 'info');
+        resolve();
+      },
+      { enableHighAccuracy:true, timeout:15000 }
+    );
+  });
+}
+
+// ── TEST 2: NEAREST NEXRAD ──────────────────────────────────────
+async function findRadar() {
+  const t0 = performance.now();
+  log('radar-status', 'Querying IEM radar finder...', 'warn');
+  const url = `https://mesonet.agron.iastate.edu/json/radar.py?operation=available&lat=${lat}&lon=${lon}`;
+  logAppend('radar-status', `<span class="dim">URL: ${url}</span>`);
+
+  try {
+    const r = await fetch(url);
+    const elapsed_t = elapsed(t0);
+
+    if (!r.ok) {
+      log('radar-status', `HTTP ${r.status} — ${elapsed_t}`, 'err');
+      logAppend('radar-status', 'CORS may be blocking this request', 'warn');
+      return;
+    }
+    const text = await r.text();
+    showRaw('radar-raw', text);
+
+    try {
+      const d = JSON.parse(text);
+      if (d.radars && d.radars.length > 0) {
+        // Sort by distance (if not already)
+        nearestRadar = d.radars[0];
+        log('radar-status',
+          `<span class="ok">SUCCESS</span> · ${elapsed_t}<br>` +
+          `Nearest: <span class="info">${nearestRadar}</span>`,
+          '');
+        // Check if response has distance info
+        logAppend('radar-status', `Total radars returned: ${d.radars.length}`, 'dim');
+        logAppend('radar-status', `First 5: ${d.radars.slice(0,5).join(', ')}`, 'dim');
+      } else {
+        log('radar-status', `Response OK but no radars found — ${elapsed_t}`, 'warn');
+        logAppend('radar-status', 'Response keys: ' + Object.keys(d).join(', '), 'dim');
+        // Try to extract radar from response structure
+        if (typeof d === 'object') {
+          const keys = Object.keys(d);
+          if (keys.length > 0) {
+            nearestRadar = keys[0];
+            logAppend('radar-status', `Guessing nearest from keys: ${nearestRadar}`, 'info');
+          }
+        }
+      }
+    } catch(e) {
+      log('radar-status', `JSON parse error — ${elapsed_t}`, 'warn');
+      logAppend('radar-status', 'Response may not be JSON. First 200 chars:', 'dim');
+      logAppend('radar-status', text.substring(0,200), 'dim');
+      // Try to extract a radar ID from the text
+      const match = text.match(/K[A-Z]{3}/);
+      if (match) {
+        nearestRadar = match[0];
+        logAppend('radar-status', `Extracted radar ID from response: ${nearestRadar}`, 'info');
+      }
+    }
+  } catch(e) {
+    log('radar-status', `FETCH FAILED: ${e.message}`, 'err');
+    logAppend('radar-status', 'This likely means CORS is blocked from browser requests.', 'warn');
+    logAppend('radar-status', 'Falling back to manual radar lookup...', 'info');
+    // Hardcode nearest based on known locations
+    nearestRadar = guessRadar(lat, lon);
+    logAppend('radar-status', `Using estimated nearest: ${nearestRadar}`, 'info');
+  }
+}
+
+function guessRadar(lat, lon) {
+  // Simple nearest-radar lookup for common chase areas
+  const radars = [
+    {id:'KTLX',lat:35.333,lon:-97.278}, // OKC
+    {id:'KINX',lat:36.175,lon:-95.565}, // Tulsa
+    {id:'KVNX',lat:36.741,lon:-98.128}, // Vance AFB
+    {id:'KFDR',lat:34.362,lon:-98.976}, // Frederick
+    {id:'KDDC',lat:37.761,lon:-99.969}, // Dodge City
+    {id:'KICT',lat:37.655,lon:-97.443}, // Wichita
+    {id:'KLBB',lat:33.654,lon:-101.814}, // Lubbock
+    {id:'KAMA',lat:35.233,lon:-101.709}, // Amarillo
+    {id:'KABX',lat:35.150,lon:-106.824}, // Albuquerque
+    {id:'KFWS',lat:32.573,lon:-97.303}, // Dallas
+    {id:'KOUN',lat:35.236,lon:-97.462}, // Norman
+    {id:'KLZK',lat:34.836,lon:-92.262}, // Little Rock
+    {id:'KEAX',lat:38.810,lon:-94.264}, // KC
+    {id:'KSGF',lat:37.235,lon:-93.400}, // Springfield
+    {id:'KOAX',lat:41.320,lon:-96.367}, // Omaha
+    {id:'KDMX',lat:41.731,lon:-93.723}, // Des Moines
+    {id:'KMPX',lat:44.849,lon:-93.565}, // Minneapolis
+  ];
+  let best=radars[0], bestDist=999;
+  for(const r of radars){
+    const d=Math.sqrt((r.lat-lat)**2+(r.lon-lon)**2);
+    if(d<bestDist){bestDist=d;best=r;}
+  }
+  return best.id;
+}
+
+// ── TEST 3: STORM ATTRIBUTES CSV ────────────────────────────────
+async function fetchStormAttrs() {
+  if (!nearestRadar) {
+    log('attrs-status', 'No radar identified — skipping', 'err');
+    return;
+  }
+
+  const t0 = performance.now();
+  log('attrs-status', `Querying storm attributes for ${nearestRadar}...`, 'warn');
+
+  // Build time range: last 30 minutes in UTC
+  const now = new Date();
+  const ago = new Date(now.getTime() - 30*60*1000);
+  const fmt = d => `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}+${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`;
+
+  // IEM backend endpoint
+  const radar = nearestRadar.replace(/^K/,''); // IEM uses 3-char (no K prefix sometimes)
+  const radarFull = nearestRadar;
+
+  // Try multiple URL patterns
+  const urls = [
+    // Pattern 1: CSV with time range for today
+    `https://mesonet.agron.iastate.edu/cgi-bin/request/gis/nexrad_storm_attrs.py?radar=${radarFull}&year1=${ago.getUTCFullYear()}&month1=${ago.getUTCMonth()+1}&day1=${ago.getUTCDate()}&hour1=${ago.getUTCHours()}&minute1=${ago.getUTCMinutes()}&year2=${now.getUTCFullYear()}&month2=${now.getUTCMonth()+1}&day2=${now.getUTCDate()}&hour2=${now.getUTCHours()}&minute2=${now.getUTCMinutes()}&fmt=csv`,
+    // Pattern 2: Same but with 3-char radar ID
+    `https://mesonet.agron.iastate.edu/cgi-bin/request/gis/nexrad_storm_attrs.py?radar=${radar}&year1=${ago.getUTCFullYear()}&month1=${ago.getUTCMonth()+1}&day1=${ago.getUTCDate()}&hour1=${ago.getUTCHours()}&minute1=${ago.getUTCMinutes()}&year2=${now.getUTCFullYear()}&month2=${now.getUTCMonth()+1}&day2=${now.getUTCDate()}&hour2=${now.getUTCHours()}&minute2=${now.getUTCMinutes()}&fmt=csv`,
+    // Pattern 3: Try the GIS current data directory
+    `https://mesonet.agron.iastate.edu/data/gis/shape/4326/us/current_nexattr.dbf`,
+  ];
+
+  for (let i=0; i<urls.length; i++) {
+    logAppend('attrs-status', `<br><span class="dim">Attempt ${i+1}: ${urls[i].substring(0,120)}...</span>`);
+    try {
+      const r = await fetch(urls[i]);
+      const elapsed_t = elapsed(t0);
+
+      if (!r.ok) {
+        logAppend('attrs-status', `HTTP ${r.status} — ${elapsed_t}`, 'warn');
+        continue;
+      }
+
+      const text = await r.text();
+      showRaw('attrs-raw', text);
+
+      if (text.length < 10) {
+        logAppend('attrs-status', `Empty response (${text.length} bytes) — ${elapsed_t}`, 'warn');
+        continue;
+      }
+
+      // Try to parse as CSV
+      const lines = text.trim().split('\n');
+      logAppend('attrs-status',
+        `<span class="ok">GOT DATA</span> · ${elapsed_t} · ${lines.length} lines · ${text.length} bytes`, '');
+
+      if (lines.length > 1) {
+        const header = lines[0];
+        logAppend('attrs-status', `<span class="dim">Headers: ${header}</span>`);
+
+        // Parse storms and display cards
+        parseAndDisplayStorms(lines);
+
+        // Check data recency
+        const lastLine = lines[lines.length-1];
+        const timeMatch = lastLine.match(/\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}/);
+        if (timeMatch) {
+          const dataTime = new Date(timeMatch[0]+'Z');
+          const ageMin = Math.round((now - dataTime)/60000);
+          logAppend('attrs-status',
+            `<br>LATENCY CHECK: Most recent record is <span class="${ageMin<=10?'ok':ageMin<=60?'yellow':'err'}">${ageMin} minutes old</span>`);
+        }
+      }
+      return; // Success — stop trying other URLs
+
+    } catch(e) {
+      logAppend('attrs-status', `FAILED: ${e.message}`, 'err');
+    }
+  }
+
+  logAppend('attrs-status', '<br>All attempts failed. CORS may be blocking IEM requests from browser.', 'err');
+  logAppend('attrs-status', 'This would require a proxy or alternative approach.', 'warn');
+}
+
+function parseAndDisplayStorms(lines) {
+  const container = document.getElementById('attrs-cards');
+  container.innerHTML = '';
+
+  if (lines.length <= 1) return;
+
+  const headers = lines[0].split(',').map(h=>h.trim().toUpperCase());
+  const storms = [];
+
+  for (let i=1; i<lines.length; i++) {
+    const vals = lines[i].split(',');
+    const storm = {};
+    headers.forEach((h,j) => storm[h] = vals[j]?.trim() || '');
+    storms.push(storm);
+  }
+
+  // Show last 10 storms max
+  const recent = storms.slice(-10);
+
+  for (const s of recent) {
+    const hasTVS = (s.TVS||'').toUpperCase().includes('Y') || (s.TVS||'').toUpperCase().includes('TVS');
+    const hasMeso = parseInt(s.MESO||'0') > 0;
+    const card = document.createElement('div');
+    card.className = 'storm-card' + (hasTVS?' has-tvs':hasMeso?' has-meso':'');
+
+    const topKft = parseFloat(s.TOP||s['STORM TOP']||'0');
+    const maxDbz = parseInt(s.MAX_DBZ||s.MAXREF||'0');
+    const vil = parseInt(s.VIL||'0');
+    const posh = parseInt(s.POSH||'0');
+    const maxSize = parseFloat(s.MAX_SIZE||s.MAXSIZE||'0');
+    const stormId = s.STORM_ID||s.CELL_ID||'?';
+    const radarId = s.NEXRAD||s.WSR_ID||nearestRadar;
+    const time = s.VALID||s.ZTIME||'';
+
+    card.innerHTML = `
+      <span class="label">${radarId} · CELL ${stormId}</span> <span class="dim">${time}</span><br>
+      TOP: <span class="val">${topKft>0?topKft.toFixed(1)+'K FT':'N/A'}</span> ·
+      MAX dBZ: <span class="val">${maxDbz||'N/A'}</span> ·
+      VIL: <span class="val">${vil||'N/A'}</span><br>
+      POSH: <span class="val">${posh}%</span> ·
+      MAX HAIL: <span class="val">${maxSize>0?maxSize+'"':'N/A'}</span> ·
+      TVS: <span class="${hasTVS?'highlight':'val'}">${s.TVS||'NONE'}</span> ·
+      MESO: <span class="${hasMeso?'highlight':'val'}">${s.MESO||'NONE'}</span>
+    `;
+    container.appendChild(card);
+  }
+
+  if (storms.length > 10) {
+    const note = document.createElement('div');
+    note.className = 'dim';
+    note.style.cssText = 'font-size:10px;margin-top:6px;';
+    note.textContent = `Showing last 10 of ${storms.length} storm cells`;
+    container.appendChild(note);
+  }
+}
+
+// ── TEST 4: IEM LSR GEOJSON ────────────────────────────────────
+async function fetchLSR() {
+  const t0 = performance.now();
+  log('lsr-status', 'Querying IEM LSR GeoJSON...', 'warn');
+
+  // Bounding box: ~1 degree around position
+  const url = `https://mesonet.agron.iastate.edu/geojson/lsr.geojson?west=${(lon-1).toFixed(2)}&east=${(lon+1).toFixed(2)}&south=${(lat-1).toFixed(2)}&north=${(lat+1).toFixed(2)}&hours=12`;
+  logAppend('lsr-status', `<span class="dim">${url}</span>`);
+
+  try {
+    const r = await fetch(url);
+    const elapsed_t = elapsed(t0);
+    if (!r.ok) {
+      log('lsr-status', `HTTP ${r.status} — ${elapsed_t}`, 'err');
+      return;
+    }
+    const text = await r.text();
+    showRaw('lsr-raw', text);
+
+    const d = JSON.parse(text);
+    const count = d.features?.length || 0;
+    log('lsr-status',
+      `<span class="ok">SUCCESS</span> · ${elapsed_t} · ${count} reports in last 12h within ~70mi`, '');
+
+    if (count > 0) {
+      const types = {};
+      d.features.forEach(f => {
+        const t = f.properties?.type || f.properties?.typetext || 'unknown';
+        types[t] = (types[t]||0) + 1;
+      });
+      logAppend('lsr-status', 'Types: ' + Object.entries(types).map(([k,v])=>`${k}: ${v}`).join(' · '), 'info');
+
+      // Show most recent
+      const newest = d.features[d.features.length-1];
+      if (newest?.properties) {
+        const p = newest.properties;
+        logAppend('lsr-status', `Most recent: ${p.typetext||p.type} — ${p.city||''} — ${p.valid||''}`, 'dim');
+        if (p.magnitude) logAppend('lsr-status', `Magnitude: ${p.magnitude}`, 'dim');
+      }
+    }
+  } catch(e) {
+    log('lsr-status', `FAILED: ${e.message}`, 'err');
+    logAppend('lsr-status', 'CORS may be blocking IEM GeoJSON requests.', 'warn');
+  }
+}
+
+// ── TEST 5: NCEI SWDI (latency check) ──────────────────────────
+async function fetchSWDI() {
+  const t0 = performance.now();
+  log('swdi-status', 'Querying NCEI SWDI for today...', 'warn');
+
+  const now = new Date();
+  const today = `${now.getUTCFullYear()}${String(now.getUTCMonth()+1).padStart(2,'0')}${String(now.getUTCDate()).padStart(2,'0')}`;
+  const url = `https://www.ncei.noaa.gov/swdiws/csv/nx3structure/${today}?center=${lon.toFixed(1)},${lat.toFixed(1)}&radius=15`;
+  logAppend('swdi-status', `<span class="dim">${url}</span>`);
+
+  try {
+    const r = await fetch(url);
+    const elapsed_t = elapsed(t0);
+
+    if (!r.ok) {
+      log('swdi-status', `HTTP ${r.status} — ${elapsed_t}`, 'err');
+      if (r.status === 400) logAppend('swdi-status', 'May not have today\'s data yet (confirms latency)', 'warn');
+      return;
+    }
+    const text = await r.text();
+    showRaw('swdi-raw', text);
+
+    const lines = text.trim().split('\n').filter(l=>l&&!l.startsWith('#'));
+    log('swdi-status', `Response: ${lines.length} lines — ${elapsed_t}`, lines.length>1?'ok':'warn');
+
+    if (lines.length <= 1) {
+      logAppend('swdi-status', 'No data for today. Confirms 24-48h latency — NOT usable for real-time.', 'warn');
+      // Try yesterday
+      const yesterday = new Date(now.getTime() - 24*60*60*1000);
+      const ydStr = `${yesterday.getUTCFullYear()}${String(yesterday.getUTCMonth()+1).padStart(2,'0')}${String(yesterday.getUTCDate()).padStart(2,'0')}`;
+      logAppend('swdi-status', `Trying yesterday (${ydStr}) to verify service works...`, 'dim');
+      try {
+        const r2 = await fetch(`https://www.ncei.noaa.gov/swdiws/csv/nx3structure/${ydStr}?center=${lon.toFixed(1)},${lat.toFixed(1)}&radius=50`);
+        if (r2.ok) {
+          const t2 = await r2.text();
+          const l2 = t2.trim().split('\n').filter(l=>l&&!l.startsWith('#'));
+          logAppend('swdi-status', `Yesterday: ${l2.length} lines — service works but data is delayed`, l2.length>1?'info':'warn');
+        }
+      } catch(e) { logAppend('swdi-status', 'Yesterday query also failed', 'err'); }
+    }
+  } catch(e) {
+    log('swdi-status', `FAILED: ${e.message}`, 'err');
+    logAppend('swdi-status', 'CORS may be blocking NCEI requests.', 'warn');
+  }
+}
+
+// ── TEST 6: OPEN-METEO PRESSURE LEVELS ─────────────────────────
+async function fetchPressureLevels() {
+  const t0 = performance.now();
+  log('meteo-status', 'Querying Open-Meteo with pressure level winds...', 'warn');
+
+  const vars = [
+    'cape','convective_inhibition','lifted_index',
+    'temperature_2m','dewpoint_2m',
+    'wind_speed_10m','wind_direction_10m',
+    'wind_speed_925hPa','wind_direction_925hPa',
+    'wind_speed_850hPa','wind_direction_850hPa',
+    'wind_speed_700hPa','wind_direction_700hPa',
+    'wind_speed_500hPa','wind_direction_500hPa',
+    'geopotential_height_1000hPa','geopotential_height_925hPa',
+    'geopotential_height_850hPa','geopotential_height_500hPa',
+    'temperature_925hPa','temperature_850hPa','temperature_700hPa','temperature_500hPa',
+  ].join(',');
+
+  const url = `https://api.open-meteo.com/v1/gfs?latitude=${lat}&longitude=${lon}&hourly=${vars}&models=hrrr_conus&forecast_hours=6&past_hours=1&temperature_unit=fahrenheit&wind_speed_unit=kn`;
+  logAppend('meteo-status', `<span class="dim">${url.substring(0,120)}...</span>`);
+
+  try {
+    const r = await fetch(url);
+    const elapsed_t = elapsed(t0);
+    if (!r.ok) {
+      log('meteo-status', `HTTP ${r.status} — ${elapsed_t}`, 'err');
+      return;
+    }
+    const d = await r.json();
+    showRaw('meteo-raw', JSON.stringify(d, null, 2));
+
+    const h = d.hourly;
+    if (!h || !h.time) {
+      log('meteo-status', 'No hourly data returned', 'err');
+      return;
+    }
+
+    // Find current hour index
+    const nowISO = new Date().toISOString().substring(0,13);
+    let idx = h.time.findIndex(t => t.startsWith(nowISO));
+    if (idx < 0) idx = Math.min(1, h.time.length-1); // fallback to second entry (past_hours=1)
+
+    log('meteo-status', `<span class="ok">SUCCESS</span> · ${elapsed_t} · ${h.time.length} hours · ${Object.keys(h).length} variables`, '');
+    logAppend('meteo-status', `Current hour: ${h.time[idx]}`, 'dim');
+    logAppend('meteo-status', '');
+
+    // Display current values
+    const vals = [
+      ['CAPE', h.cape?.[idx], ' J/kg'],
+      ['CIN', h.convective_inhibition?.[idx], ' J/kg'],
+      ['LI', h.lifted_index?.[idx], ''],
+      ['SFC Wind', h.wind_speed_10m?.[idx], 'kt @ '+h.wind_direction_10m?.[idx]+'°'],
+      ['925 hPa Wind', h.wind_speed_925hPa?.[idx], 'kt @ '+h.wind_direction_925hPa?.[idx]+'°'],
+      ['850 hPa Wind', h.wind_speed_850hPa?.[idx], 'kt @ '+h.wind_direction_850hPa?.[idx]+'°'],
+      ['700 hPa Wind', h.wind_speed_700hPa?.[idx], 'kt @ '+h.wind_direction_700hPa?.[idx]+'°'],
+      ['500 hPa Wind', h.wind_speed_500hPa?.[idx], 'kt @ '+h.wind_direction_500hPa?.[idx]+'°'],
+      ['925 hPa Temp', h.temperature_925hPa?.[idx], '°F'],
+      ['850 hPa Temp', h.temperature_850hPa?.[idx], '°F'],
+      ['700 hPa Temp', h.temperature_700hPa?.[idx], '°F'],
+      ['500 hPa Temp', h.temperature_500hPa?.[idx], '°F'],
+      ['GPH 1000', h.geopotential_height_1000hPa?.[idx], 'm'],
+      ['GPH 925', h.geopotential_height_925hPa?.[idx], 'm'],
+      ['GPH 850', h.geopotential_height_850hPa?.[idx], 'm'],
+      ['GPH 500', h.geopotential_height_500hPa?.[idx], 'm'],
+    ];
+
+    for (const [label, val, unit] of vals) {
+      const color = val!=null ? 'info' : 'dim';
+      logAppend('meteo-status', `<span class="${color}">${label}: ${val!=null?val+unit:'NULL'}</span>`);
+    }
+
+    // Compute basic 0-6km bulk shear if we have data
+    const sfcSpd = h.wind_speed_10m?.[idx];
+    const sfcDir = h.wind_direction_10m?.[idx];
+    const spd500 = h.wind_speed_500hPa?.[idx];
+    const dir500 = h.wind_direction_500hPa?.[idx];
+
+    if (sfcSpd!=null && spd500!=null) {
+      const toRad = Math.PI/180;
+      const sfcU = -sfcSpd * Math.sin(sfcDir*toRad);
+      const sfcV = -sfcSpd * Math.cos(sfcDir*toRad);
+      const u500 = -spd500 * Math.sin(dir500*toRad);
+      const v500 = -spd500 * Math.cos(dir500*toRad);
+      const shear = Math.sqrt((u500-sfcU)**2 + (v500-sfcV)**2);
+      logAppend('meteo-status', '');
+      logAppend('meteo-status', `<span class="ok">COMPUTED 0-6km BULK SHEAR: ${shear.toFixed(1)} kt</span>`);
+
+      // Rough STP if we have the ingredients
+      const cape = h.cape?.[idx];
+      const lcl = h.geopotential_height_925hPa?.[idx]; // rough proxy
+      if (cape!=null) {
+        const shearMs = shear * 0.514444;
+        const stpRaw = (cape/1500) * (shearMs/20);
+        logAppend('meteo-status', `<span class="ok">ROUGH STP (partial — no SRH/LCL yet): ${stpRaw.toFixed(2)}</span>`);
+      }
+    }
+
+  } catch(e) {
+    log('meteo-status', `FAILED: ${e.message}`, 'err');
+  }
+}
+
+// ── RUN ALL ─────────────────────────────────────────────────────
+async function runAllTests() {
+  document.getElementById('btn-run').disabled = true;
+  document.getElementById('btn-run').textContent = 'RUNNING...';
+  document.getElementById('sec-summary').style.display = 'none';
+
+  await getGPS();
+  await findRadar();
+  await fetchStormAttrs();
+  await fetchLSR();
+  await fetchSWDI();
+  await fetchPressureLevels();
+
+  // Summary
+  document.getElementById('sec-summary').style.display = 'block';
+  document.getElementById('btn-run').disabled = false;
+  document.getElementById('btn-run').textContent = '▶ RUN AGAIN';
+}
+</script>
+</body>
+</html>
